@@ -7,3 +7,4 @@
     pose_graph_file_name: pose_graph.json
     enable_map_reading: true 
     enable_map_storage: false
+    max_nb_robots: 2

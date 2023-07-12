@@ -33,16 +33,18 @@ find_package(cslam_common_interfaces REQUIRED)
 # Install Python modules
 ament_python_install_package(${PROJECT_NAME})
 
-# Install Python executables
-install(PROGRAMS
-  scripts/cslam_storage.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
 install(DIRECTORY 
    config
    DESTINATION share/${PROJECT_NAME}/
 )
+
+# Install Python executables
+install(PROGRAMS
+  cslam_storage/cslam_storage.py
+  cslam_storage/map_recovery_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
