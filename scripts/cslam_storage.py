@@ -18,7 +18,7 @@ class CslamStorage(Node):
                 PoseGraph, '/cslam/viz/pose_graph', self.pose_graph_storage_callback, 10)
         self.pointclouds_storage_subscriber = self.create_subscription(
                 VizPointCloud, '/cslam/viz/keyframe_pointcloud', self.point_clouds_storage_callback, 10)
-        
+
         self.pose_graph_to_store = {}
 
         self.declare_parameters(
