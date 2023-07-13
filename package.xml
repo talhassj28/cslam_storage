@@ -12,6 +12,10 @@
 
   <depend>rclcpp</depend>
   <depend>rclpy</depend>
+  
+  <build_depend>cslam_common_interfaces</build_depend>
+  
+  <exec_depend>cslam_common_interfaces</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

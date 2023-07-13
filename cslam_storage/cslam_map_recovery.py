@@ -1,13 +1,14 @@
 from std_msgs.msg import UInt32
 
-class MapRecovery():
+class CslamMapRecovery():
     def __init__(self, node, robot_id):
         self.node = node
         self.robot_heartbeat_subscriber = self.node.create_subscription(
             UInt32, 
-            '/r' + str(robot_id) '/cslam/heartbeat', 
+            '/r' + str(robot_id) + '/cslam/heartbeat', 
             self.heartbeat_received_callback, 
-            10)
+            10
+        )
         
     def heartbeat_received_callback(self, msg):
         if (msg.data == 1):
