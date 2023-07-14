@@ -26,14 +26,11 @@ class MapRecovery():
             10
         )
 
-        self.map_recovery_client = self.node.create_client(MapRequest, '/r' + str(robot_id) + '/publish_previous_map')       # CHANGE
-        # while not self.map_recovery_client.wait_for_service(timeout_sec = 1.0):
-        #     self.node.get_logger().info('service not available, waiting again...')
-        self.map_recovery_req = MapRequest.Request()                                   # CHANGE
+        self.map_recovery_client = self.node.create_client(MapRequest, '/r' + str(robot_id) + '/publish_previous_map')
+        self.map_recovery_req = MapRequest.Request()
         
     def heartbeat_received_callback(self, msg):
         if (msg.data == 1):
-            self.node.get_logger().info("Getting data from robot " + str(self.robot_id)) 
             self.future = self.map_recovery_client.call_async(self.map_recovery_req)
 
 class CslamStorage(Node):
@@ -48,7 +45,9 @@ class CslamStorage(Node):
                 VizPointCloud, '/cslam/viz/keyframe_pointcloud', self.point_clouds_storage_callback, 10)
         self.pose_graph_publisher = self.create_publisher(
             PoseGraph, "/cslam/viz/pose_graph", 10)
-
+        self.pointclouds_publisher = self.create_publisher(
+            VizPointCloud, '/cslam/viz/keyframe_pointcloud', 10)
+        
         # Services
         self.publish_previous_map = self.create_service(MapRequest, 'publish_previous_map', self.publish_previous_map_callback)
 
@@ -69,10 +68,6 @@ class CslamStorage(Node):
         'map_path').value
         self.params['pose_graph_file_name'] = self.get_parameter(
             'pose_graph_file_name').value
-        self.params['enable_map_storage'] = self.get_parameter(
-            'enable_map_storage').value
-        self.params['enable_map_reading'] = self.get_parameter(
-            'enable_map_reading').value
         self.params['is_robot'] = self.get_parameter(
             'is_robot').value
         
@@ -98,7 +93,7 @@ class CslamStorage(Node):
             # TODO: handle case when there is a previous different data 
             # Read file is not empty
             # if os.path.getsize(pose_graph_path) != 0:
-            #     pose_graph_to_store = json.load(json_file)
+            #     self.pose_graph_to_store = json.load(json_file)
 
             json.dump(self.pose_graph_to_store, json_file)
     
@@ -215,7 +210,6 @@ class CslamStorage(Node):
                 # pose_graph_msg.connected_robots 
                 pose_graph_msg.values = values
                 pose_graph_msg.edges = edges    
-                self.get_logger().info("JE SUIS LA")
                 self.pose_graph_publisher.publish(pose_graph_msg)
 
             # for robot_id, robot_pose_graph in global_pose_graph.items():
@@ -234,6 +228,27 @@ class CslamStorage(Node):
             #     if robot_id_int not in self.robot_pose_graphs_edges:
             #         self.robot_pose_graphs_edges[robot_id_int] = []
 
+    def retrieve_point_cloud_keyframes(self):
+        pose_graph_path = self.params['map_path'] + "/" + self.params['pose_graph_file_name']
+
+        # TODO: bug is path doesnt exist
+        with open(pose_graph_path, 'r') as file:
+            global_pose_graph = json.load(file)
+
+            for robot_id, robot_pose_graph in global_pose_graph.items():
+                point_cloud_keyframes_folder = self.params['map_path'] + '/robot' + robot_id
+                for keyframe_id, pose_graph_value in robot_pose_graph["values"].items():
+                    point_cloud_keyframe_path = point_cloud_keyframes_folder + '/keyframe_' + keyframe_id + '.pcd'
+                    
+                    if (os.path.exists(point_cloud_keyframe_path)):
+                        pcd = open3d.io.read_point_cloud(point_cloud_keyframe_path)
+                        point_cloud = icp_utils.open3d_to_ros(pcd)
+                        viz_point_cloud = VizPointCloud()
+                        viz_point_cloud.robot_id = int(robot_id)
+                        viz_point_cloud.keyframe_id = int(keyframe_id)
+                        viz_point_cloud.pointcloud = point_cloud
+                        self.pointclouds_publisher.publish(viz_point_cloud)
+
     def pose_graph_storage_callback(self, msg):    
         # Initialize robot pose graph if it doesn't exist yet
         if msg.robot_id not in self.pose_graph_to_store:
@@ -247,7 +262,9 @@ class CslamStorage(Node):
             self.pose_graph_to_store[msg.robot_id]["values"][pose.key.keyframe_id] = self.pose_graph_value_to_dict(pose)
         self.pose_graph_to_store[msg.robot_id]["edges"] = list(map(self.pose_graph_edge_to_dict, msg.edges))
 
-        self.store_pose_graph(msg)
+        # Make sure to not store a empty json pose graph
+        if (len(msg.values) != 0 & len(msg.edges) != 0): 
+            self.store_pose_graph(msg)
 
     def point_clouds_storage_callback(self, pc_msg):
         """Store point cloud data into a given .pcd file 
@@ -263,8 +280,8 @@ class CslamStorage(Node):
         open3d.io.write_point_cloud(pcd_file_path, point_cloud)
 
     def publish_previous_map_callback(self, request, response):
-        self.get_logger().info("PUBLISHING PREVIOUS MAP")
         self.retrieve_pose_graph()
+        self.retrieve_point_cloud_keyframes()
         response.publishing_map = True
         return response
 
