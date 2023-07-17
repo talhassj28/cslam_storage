@@ -50,9 +50,9 @@ class CslamStorage(Node):
         
         # Services
         self.publish_previous_map = self.create_service(MapRequest, 'publish_previous_map', self.publish_previous_map_callback)
-
         self.pose_graph_to_store = {}
 
+        # Set parameters
         self.declare_parameters(
             namespace='',
             parameters=[# TODO: test if this default value works
@@ -60,43 +60,24 @@ class CslamStorage(Node):
                         # enable_map_reading are true, or use a default path 
                         ('map_path', ''),
                         ('pose_graph_file_name', 'pose_graph.json'), 
-                        ('enable_map_storage', False),
-                        ('enable_map_reading', False),
-                        ('is_robot', False),]),
-        self.params = {}
-        self.params['map_path'] = self.get_parameter(
-        'map_path').value
-        self.params['pose_graph_file_name'] = self.get_parameter(
-            'pose_graph_file_name').value
-        self.params['is_robot'] = self.get_parameter(
-            'is_robot').value
+                        ('is_robot', False),
+                        ('max_nb_robots', 2),])
         
-        # Set parameters
-        self.declare_parameters(
-            namespace='',
-            parameters=[('max_nb_robots', 2)],
-        )
+        self.map_path = self.get_parameter(
+        'map_path').value
+        self.pose_graph_file_name = self.get_parameter(
+            'pose_graph_file_name').value
+        self.is_robot = self.get_parameter(
+            'is_robot').value
         self.max_nb_robots = self.get_parameter(
         'max_nb_robots').value
         
-        if (self.params['is_robot'] == False):
-            self.map_recuperators = {}
+        # Define map recovery clients (we create a service client for each robot) 
+        self.map_recovery_clients = {} 
+        if not self.is_robot:
             for robot_id in range(self.max_nb_robots):
-                self.map_recuperators[robot_id] = MapRecovery(self, robot_id) 
+                self.map_recovery_clients[robot_id] = MapRecovery(self, robot_id) 
 
-    def store_pose_graph(self, msg):
-        # Make sure that intermediate directories exist
-        os.makedirs(self.params["map_path"], exist_ok=True)
-
-        pose_graph_path = self.params["map_path"] + "/" + self.params["pose_graph_file_name"]
-        with open(pose_graph_path, "w+") as json_file:
-            # TODO: handle case when there is a previous different data 
-            # Read file is not empty
-            # if os.path.getsize(pose_graph_path) != 0:
-            #     self.pose_graph_to_store = json.load(json_file)
-
-            json.dump(self.pose_graph_to_store, json_file)
-    
     # Conversion methods
     def pose_graph_value_to_dict(self, pose_graph_value):
         """ Convert cslam_common_interfaces/msg/PoseGraphValue to dict
@@ -179,13 +160,16 @@ class CslamStorage(Node):
         pose_graph_edge.measurement = self.dict_to_pose(dict["measurement"])
         pose_graph_edge.noise_std = dict["noise_std"]                    
         return pose_graph_edge
-
+    
+    # Methods to retrieve and store the map in files 
     def retrieve_pose_graph(self):
         """ Read pose graph from json file 
             Path is passed as parameter in the yaml file """
-        pose_graph_path = self.params['map_path'] + "/" + self.params['pose_graph_file_name']
-
-        # TODO: bug is path doesnt exist
+        pose_graph_path = self.map_path + "/" + self.pose_graph_file_name
+        
+        if not os.path.exists(pose_graph_path):
+            return 
+        
         with open(pose_graph_path, 'r') as file:
             pose_graph_msg = PoseGraph()
             global_pose_graph = json.load(file)
@@ -212,31 +196,17 @@ class CslamStorage(Node):
                 pose_graph_msg.edges = edges    
                 self.pose_graph_publisher.publish(pose_graph_msg)
 
-            # for robot_id, robot_pose_graph in global_pose_graph.items():
-            #     robot_id_int = int(robot_id)
-            #     self.origin_robot_ids[robot_id_int] = robot_id_int
-                
-            #     if robot_id_int not in self.robot_pose_graphs:
-            #         self.robot_pose_graphs[robot_id_int] = {}
-
-            #     # Retrieve each cslam_common_interfaces/msg/PoseGraphValue
-            #     for keyframe_id, pose_dict in robot_pose_graph["values"].items():
-            #         keyframe_id_int = int(keyframe_id)
-            #         self.robot_pose_graphs[robot_id_int][keyframe_id_int] = self.dict_to_pose_graph_value(pose_dict, robot_id_int, keyframe_id_int)
-
-
-            #     if robot_id_int not in self.robot_pose_graphs_edges:
-            #         self.robot_pose_graphs_edges[robot_id_int] = []
-
     def retrieve_point_cloud_keyframes(self):
-        pose_graph_path = self.params['map_path'] + "/" + self.params['pose_graph_file_name']
+        pose_graph_path = self.map_path + "/" + self.pose_graph_file_name
 
-        # TODO: bug is path doesnt exist
+        if not os.path.exists(pose_graph_path):
+            return 
+        
         with open(pose_graph_path, 'r') as file:
             global_pose_graph = json.load(file)
 
             for robot_id, robot_pose_graph in global_pose_graph.items():
-                point_cloud_keyframes_folder = self.params['map_path'] + '/robot' + robot_id
+                point_cloud_keyframes_folder = self.map_path + '/robot' + robot_id
                 for keyframe_id, pose_graph_value in robot_pose_graph["values"].items():
                     point_cloud_keyframe_path = point_cloud_keyframes_folder + '/keyframe_' + keyframe_id + '.pcd'
                     
@@ -249,6 +219,15 @@ class CslamStorage(Node):
                         viz_point_cloud.pointcloud = point_cloud
                         self.pointclouds_publisher.publish(viz_point_cloud)
 
+    def store_pose_graph(self):
+        # Make sure that intermediate directories exist
+        os.makedirs(self.map_path, exist_ok=True)
+
+        pose_graph_path = self.map_path + "/" + self.pose_graph_file_name
+        with open(pose_graph_path, "w+") as json_file:
+            json.dump(self.pose_graph_to_store, json_file)
+    
+    # Subscriber callbacks  
     def pose_graph_storage_callback(self, msg):    
         # Initialize robot pose graph if it doesn't exist yet
         if msg.robot_id not in self.pose_graph_to_store:
@@ -263,8 +242,8 @@ class CslamStorage(Node):
         self.pose_graph_to_store[msg.robot_id]["edges"] = list(map(self.pose_graph_edge_to_dict, msg.edges))
 
         # Make sure to not store a empty json pose graph
-        if (len(msg.values) != 0 & len(msg.edges) != 0): 
-            self.store_pose_graph(msg)
+        if (len(msg.values) != 0) and (len(msg.edges) != 0): 
+            self.store_pose_graph()
 
     def point_clouds_storage_callback(self, pc_msg):
         """Store point cloud data into a given .pcd file 
@@ -272,7 +251,7 @@ class CslamStorage(Node):
         Args:
             pc_msg (VizPointCloud): point cloud message 
         """       
-        robot_folder = self.params["map_path"] + "/robot" + str(pc_msg.robot_id)
+        robot_folder = self.map_path + "/robot" + str(pc_msg.robot_id)
         os.makedirs(robot_folder, exist_ok=True)        
         pcd_file_path = robot_folder + "/keyframe_" + str(pc_msg.keyframe_id) + ".pcd"
         
@@ -287,14 +266,11 @@ class CslamStorage(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
     cslam_storage = CslamStorage()
-
     rclpy.spin(cslam_storage)
 
     cslam_storage.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
