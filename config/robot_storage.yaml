@@ -5,5 +5,6 @@
     # TODO: should I find a way to do this with a relative path?
     map_path: /home/romantwice/Projects/MISTLab/Swarm-SLAM/src/cslam_storage/robot_map
     pose_graph_file_name: pose_graph.json
-    is_robot: false
+    is_robot: true
     max_nb_robots: 2
+    enable_own_storage: false

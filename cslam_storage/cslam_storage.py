@@ -4,6 +4,8 @@ import os.path
 import json
 import cslam.lidar_pr.icp_utils as icp_utils
 import open3d
+import threading
+import numpy as np
 
 from rclpy.node import Node
 from cslam_common_interfaces.msg import PoseGraph
@@ -11,9 +13,17 @@ from cslam_common_interfaces.msg import PoseGraphValue
 from cslam_common_interfaces.msg import PoseGraphEdge
 from cslam_common_interfaces.msg import MultiRobotKey
 from cslam_common_interfaces.msg import VizPointCloud
+# TODO: find why this file takes this name and change it (_map_request) 
 from cslam_common_interfaces.srv._map_request import MapRequest
 from geometry_msgs.msg import Pose
+from geometry_msgs.msg import TransformStamped
 from std_msgs.msg import UInt32
+from std_msgs.msg import Header
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointField
+from tf2_ros import TransformBroadcaster
+
+from cslam_visualization.utils.transform import Transform
 
 class MapRecovery():
     def __init__(self, node, robot_id):
@@ -47,7 +57,11 @@ class CslamStorage(Node):
             PoseGraph, "/cslam/viz/pose_graph", 10)
         self.pointclouds_publisher = self.create_publisher(
             VizPointCloud, '/cslam/viz/keyframe_pointcloud', 10)
+        self.pointclouds2_publisher = self.create_publisher(
+            PointCloud2, 'pointcloud', 10)
         
+        self.tf_broadcaster = TransformBroadcaster(self)
+
         # Services
         self.publish_previous_map = self.create_service(MapRequest, 'publish_previous_map', self.publish_previous_map_callback)
         self.pose_graph_to_store = {}
@@ -61,7 +75,8 @@ class CslamStorage(Node):
                         ('map_path', ''),
                         ('pose_graph_file_name', 'pose_graph.json'), 
                         ('is_robot', False),
-                        ('max_nb_robots', 2),])
+                        ('max_nb_robots', 2),
+                        ('enable_own_storage', False),])
         
         self.map_path = self.get_parameter(
         'map_path').value
@@ -71,12 +86,24 @@ class CslamStorage(Node):
             'is_robot').value
         self.max_nb_robots = self.get_parameter(
         'max_nb_robots').value
+        self.enable_own_storage = self.get_parameter(
+        'enable_own_storage').value
         
         # Define map recovery clients (we create a service client for each robot) 
         self.map_recovery_clients = {} 
         if not self.is_robot:
             for robot_id in range(self.max_nb_robots):
                 self.map_recovery_clients[robot_id] = MapRecovery(self, robot_id) 
+
+        if self.enable_own_storage and os.path.exists(self.map_path + '/' + self.pose_graph_file_name):
+            delay = 2  # in seconds
+            # pose_graph_timer = threading.Timer(delay, self.retrieve_pose_graph)
+            # point_clouds_timer = threading.Timer(delay, self.retrieve_point_cloud_keyframes)
+            # pose_graph_timer.start()
+            # point_clouds_timer.start()
+            # point_clouds2_timer = threading.Timer(delay, self.publish_pcd)
+            # point_clouds2_timer.start()
+            self.get_logger().info("*************** Displaying map from current computer ***************") 
 
     # Conversion methods
     def pose_graph_value_to_dict(self, pose_graph_value):
@@ -259,10 +286,98 @@ class CslamStorage(Node):
         open3d.io.write_point_cloud(pcd_file_path, point_cloud)
 
     def publish_previous_map_callback(self, request, response):
+        # self.get_logger().info('PUBLISH PREVIOOUS MAP WITH SERVICE')
+            
         self.retrieve_pose_graph()
         self.retrieve_point_cloud_keyframes()
         response.publishing_map = True
         return response
+    
+    def pose_to_transform(self, pose):
+        quat = [pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z]
+        pos = [pose.position.x, pose.position.y, pose.position.z]
+        return Transform(quat=quat, pos=pos)
+    
+    def publish_pcd(self):
+        pose_graph_path = self.map_path + "/" + self.pose_graph_file_name
+
+        tfs_to_publish = []
+        point_cloud_msgs = []
+        
+        if not os.path.exists(pose_graph_path):
+            return 
+        
+        with open(pose_graph_path, 'r') as file:
+            # pose_graph_msg = PoseGraph()
+            global_pose_graph = json.load(file)
+            
+            for robot_id, robot_pose_graph in global_pose_graph.items():
+                robot_id_int = int(robot_id)
+                # values = []
+                # edges = []
+
+                # Retrieve each cslam_common_interfaces/msg/PoseGraphValue
+                for keyframe_id, pose_dict in robot_pose_graph["values"].items():
+                    pose_value = self.dict_to_pose_graph_value(pose_dict, robot_id_int, int(keyframe_id))
+
+                    tf_to_publish = TransformStamped()
+                    tf_to_publish.header.frame_id = "base_link"
+                    tf_to_publish.header.stamp = rclpy.time.Time().to_msg()
+                    tf_to_publish.child_frame_id = "robot1_" + 'keyframe_' + keyframe_id
+                    t = self.pose_to_transform(pose_value.pose)
+                    rotation_to_sensor_frame = Transform(quat=[1, 0, 0, 0], pos=[0, 0, 0])
+                    t = t * rotation_to_sensor_frame
+                    tf_to_publish.transform = t.to_msg()
+                    tfs_to_publish.append(tf_to_publish)
+
+                    pcd = open3d.io.read_point_cloud(os.path.join(self.map_path, 'robot1', 'keyframe_' + keyframe_id + '.pcd'))
+                    point_cloud_msg = icp_utils.open3d_to_ros(pcd)
+                    point_cloud_msg.header = Header()
+                    point_cloud_msg.header.frame_id = 'base_link'
+                    point_cloud_msgs.append(point_cloud_msg)
+            
+            # for tf in tfs_to_publish:
+            #     self.tf_broadcaster.sendTransform(tf)
+            
+            for point_cloud_msg in point_cloud_msgs:
+                self.pointclouds2_publisher.publish(point_cloud_msg)
+        
+        
+        # keyframes_path = os.path.join(self.map_path, 'robot1') 
+
+
+        # for pcd_file_name in os.listdir(keyframes_path):
+        #     pcd = open3d.io.read_point_cloud(os.path.join(keyframes_path, pcd_file_name))
+
+        #     # points = np.asarray(pcd.points)
+        #     # points = []
+        #     # for point in pcd.points:
+        #     #     points.append([point[0], point[1], point[2]])
+
+        #     # self.get_logger().info(os.path.join(self.map_path, pcd_file_name))
+        #     # self.get_logger().info(str(pcd.points))
+        #     # rclcpp::Time now = node_->get_clock()->now();
+        #     point_cloud_msg = icp_utils.open3d_to_ros(pcd)
+        #     point_cloud_msg.header = Header()
+        #     # point_cloud_msg.header.frame_id = pcd_file_name.replace('.pcd', '')
+        #     point_cloud_msg.header.frame_id = 'robot1_map'
+        #     # point_cloud_msg.fields = [
+        #     #     PointField(name='x', offset=0,
+        #     #              datatype=PointField.FLOAT32, count=1),
+        #     #     PointField(name='y', offset=4,
+        #     #                 datatype=PointField.FLOAT32, count=1),
+        #     #     PointField(name='z', offset=8,
+        #     #                 datatype=PointField.FLOAT32, count=1)
+        #     # ]
+        #     # point_cloud_msg.data = points
+
+        #     # point_cloud_msg.header.stamp = self.get_clock().now().to_msg()
+        #     if pcd_file_name == 'keyframe_0.pcd':
+        #         self.get_logger().info('ICIIIII :')
+        #         self.get_logger().info(str(point_cloud_msg.header))
+
+        #     self.pointclouds2_publisher.publish(point_cloud_msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
