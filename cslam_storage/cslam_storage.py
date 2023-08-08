@@ -298,6 +298,7 @@ class CslamStorage(Node):
         pos = [pose.position.x, pose.position.y, pose.position.z]
         return Transform(quat=quat, pos=pos)
     
+    # TODO: verify if I still need this method 
     def publish_pcd(self):
         pose_graph_path = self.map_path + "/" + self.pose_graph_file_name
 

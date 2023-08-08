@@ -41,7 +41,6 @@ install(DIRECTORY
 # Install Python executables
 install(PROGRAMS
   cslam_storage/cslam_storage.py
-  cslam_storage/map_recovery_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
