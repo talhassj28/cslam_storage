@@ -12,11 +12,6 @@ TODO
 - [License](#license)
 
 ## Installation and building
-
-1. [Clone](https://help.github.com/articles/cloning-a-repository/) this repository to your local machine.
-2. Navigate to the project directory.
-3. Install dependencies by running the following command:
-
 ```
     # Make sure that you are in <your_swarm_slam_workspace>/src/ 
     git clone https://github.com/roman2veces/cslam_storage.git
