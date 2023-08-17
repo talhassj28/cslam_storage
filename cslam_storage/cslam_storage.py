@@ -14,7 +14,8 @@ from cslam_common_interfaces.msg import PoseGraphEdge
 from cslam_common_interfaces.msg import MultiRobotKey
 from cslam_common_interfaces.msg import VizPointCloud
 # TODO: find why this file takes this name and change it (_map_request) 
-from cslam_common_interfaces.srv._map_request import MapRequest
+from std_srvs.srv._trigger import Trigger
+# from cslam_common_interfaces.srv._map_request import Trigger
 from geometry_msgs.msg import Pose
 from geometry_msgs.msg import TransformStamped
 from std_msgs.msg import UInt32
@@ -36,36 +37,17 @@ class MapRecovery():
             10
         )
 
-        self.map_recovery_client = self.node.create_client(MapRequest, '/r' + str(robot_id) + '/publish_previous_map')
-        self.map_recovery_req = MapRequest.Request()
+        self.map_recovery_client = self.node.create_client(Trigger, '/r' + str(robot_id) + '/publish_previous_map')
+        self.map_recovery_req = Trigger.Request()
         
     def heartbeat_received_callback(self, msg):
-        if (msg.data == 1):
-            self.future = self.map_recovery_client.call_async(self.map_recovery_req)
+        self.future = self.map_recovery_client.call_async(self.map_recovery_req)
 
 class CslamStorage(Node):
 
     def __init__(self):
         super().__init__('cslam_storage')
         
-        # Publisher and subscribers
-        self.pose_graph_storage_subscriber = self.create_subscription(
-                PoseGraph, '/cslam/viz/pose_graph', self.pose_graph_storage_callback, 10)
-        self.pointclouds_storage_subscriber = self.create_subscription(
-                VizPointCloud, '/cslam/viz/keyframe_pointcloud', self.point_clouds_storage_callback, 10)
-        self.pose_graph_publisher = self.create_publisher(
-            PoseGraph, "/cslam/viz/pose_graph", 10)
-        self.pointclouds_publisher = self.create_publisher(
-            VizPointCloud, '/cslam/viz/keyframe_pointcloud', 10)
-        self.pointclouds2_publisher = self.create_publisher(
-            PointCloud2, 'pointcloud', 10)
-        
-        self.tf_broadcaster = TransformBroadcaster(self)
-
-        # Services
-        self.publish_previous_map = self.create_service(MapRequest, 'publish_previous_map', self.publish_previous_map_callback)
-        self.pose_graph_to_store = {}
-
         # Set parameters
         self.declare_parameters(
             namespace='',
@@ -88,10 +70,35 @@ class CslamStorage(Node):
         'max_nb_robots').value
         self.enable_own_storage = self.get_parameter(
         'enable_own_storage').value
+
+        # Subscribers to store map keyframes 
+        if self.enable_own_storage:
+            self.pose_graph_storage_subscriber = self.create_subscription(
+                    PoseGraph, '/cslam/viz/pose_graph', self.pose_graph_storage_callback, 10)
+            self.pointclouds_storage_subscriber = self.create_subscription(
+                    VizPointCloud, '/cslam/viz/keyframe_pointcloud', self.point_clouds_storage_callback, 10)
+        else:
+            self.get_logger().info("THIS ROBOT IS NOT STORING") 
+
+        # Publishers to send stored map data to the visualization node
+        self.pose_graph_publisher = self.create_publisher(
+            PoseGraph, "/cslam/viz/pose_graph", 10)
+        self.pointclouds_publisher = self.create_publisher(
+            VizPointCloud, '/cslam/viz/keyframe_pointcloud', 10)
+        self.pointclouds2_publisher = self.create_publisher(
+            PointCloud2, 'pointcloud', 10)
+        self.tf_broadcaster = TransformBroadcaster(self)
+
+        # Services
+        self.publish_previous_map = self.create_service(Trigger, 'publish_previous_map', self.publish_previous_map_callback)
         
+        # Attributs
+        self.pose_graph_to_store = {}
+  
         # Define map recovery clients (we create a service client for each robot) 
         self.map_recovery_clients = {} 
         if not self.is_robot:
+            self.get_logger().info("*************** IN GS ***************") 
             for robot_id in range(self.max_nb_robots):
                 self.map_recovery_clients[robot_id] = MapRecovery(self, robot_id) 
 
@@ -286,11 +293,9 @@ class CslamStorage(Node):
         open3d.io.write_point_cloud(pcd_file_path, point_cloud)
 
     def publish_previous_map_callback(self, request, response):
-        # self.get_logger().info('PUBLISH PREVIOOUS MAP WITH SERVICE')
-            
         self.retrieve_pose_graph()
         self.retrieve_point_cloud_keyframes()
-        response.publishing_map = True
+        response.success = True
         return response
     
     def pose_to_transform(self, pose):
