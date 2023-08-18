@@ -23,6 +23,8 @@ Make sure that you followed the installation guide in [Swarm-Slam.](https://gith
 ```
 
 ## How to test this project
+First, you have to set the map_path parameter to the path where your map is going to be stored. You can do this in the [config/robot_storage.yaml](https://github.com/roman2veces/cslam_storage/blob/master/config/robot_storage.yaml) and [config/visualization_storage.yaml](https://github.com/roman2veces/cslam_storage/blob/master/config/visualization_storage.yaml)
+
 You will need at least 2 terminals:
 
 First terminal (simulating the base station)

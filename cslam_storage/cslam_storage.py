@@ -203,8 +203,6 @@ class CslamStorage(Node):
 
                 pose_graph_msg.robot_id = robot_id_int
                 pose_graph_msg.origin_robot_id = robot_id_int
-                # TODO: affect this attribut !!!
-                # pose_graph_msg.connected_robots 
                 pose_graph_msg.values = values
                 pose_graph_msg.edges = edges    
                 self.pose_graph_publisher.publish(pose_graph_msg)

@@ -1,8 +1,8 @@
 /**:
   ros__parameters:
     # Storage parameters:
-    # map_path is concatened with pose_graph_file_name to create this file 
-    # TODO: should I find a way to do this with a relative path?
+    # map_path is concatened with pose_graph_file_name to create the pose graph file. 
+    # map_path is used to store the map and also to display the map in case that display_from_own_storage is true. 
     map_path: /home/polyorbite/Projects/MISTLab/Swarm-SLAM/src/cslam_visualization/map
     pose_graph_file_name: pose_graph.json
     is_robot: false
