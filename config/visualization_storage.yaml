@@ -7,4 +7,4 @@
     pose_graph_file_name: pose_graph.json
     is_robot: false
     max_nb_robots: 2
-    enable_own_storage: false
+    enable_own_storage: true
